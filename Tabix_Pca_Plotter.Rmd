@@ -1,0 +1,85 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+library(here)
+library(factoextra)
+library(FactoMineR)
+library(dplyr)
+library(purrr)
+library(janitor)
+library(Rsamtools)
+library(ggplot2)
+```
+
+```{r}
+perform_pca_analysis <- function(chromosome, start_position, end_position, popdata) {
+  # Define TabixFile and region
+  vcf_url <- paste0("https://ftp-trace.ncbi.nih.gov/1000genomes/ftp/release/20130502/ALL.chr", chromosome, ".phase3_shapeit2_mvncall_integrated_v5a.20130502.genotypes.vcf.gz")
+  tbx <- TabixFile(vcf_url)
+  
+  region <- GRanges(
+    seqnames = as.character(chromosome),
+    ranges = IRanges(start_position, end = end_position)
+  )
+  
+  # Scan Tabix data
+  res <- scanTabix(tbx, param = region)
+  
+  # Process VCF data
+  chr <- map_df(res, function(x) {
+    read.table(text = x, header = FALSE, stringsAsFactors = FALSE)
+  }) %>% select(-V1, -V2, -V4, -V5, -V6, -V7, -V8, -V9)
+  
+  chrt <- as_tibble(chr, rownames = "sample")
+  
+  # Read population data
+  popdata <- read_tsv("https://ftp.1000genomes.ebi.ac.uk/vol1/ftp/release/20130502/integrated_call_samples_v3.20130502.ALL.panel")
+  
+  # Transpose data
+  flipped <- t(chrt)
+  
+  # Extract SNP names
+  x <- flipped %>% row_to_names(row_number = 1)
+  
+  genotypes_minus_first_row <- x[-1,]
+  
+  # Process paternal and maternal data
+  paternal_num <- as_tibble(genotypes_minus_first_row) %>%
+    mutate_all(~substr(., 3, 3)) %>% 
+    mutate_all(~as.numeric(.))
+  
+  maternal_num <- as_tibble(genotypes_minus_first_row) %>%
+    mutate_all(~substr(., 1, 1)) %>% 
+    mutate_all(~as.numeric(.))
+  
+  full_snps <- paternal_num + maternal_num
+  
+  # Perform PCA
+  pca_result <- PCA(full_snps, graph = FALSE)
+  
+  # Print PCA results
+  print(pca_result)
+  str(pca_result)
+  
+  get_eig(pca_result)
+screeplot <- fviz_eig(pca_result, addlabels = TRUE)
+print(screeplot)
+get_pca_var(pca_result)$contrib
+var_plot <- fviz_contrib(pca_result, choice = "var")
+print(var_plot)
+ind_plot <- fviz_contrib(pca_result, choice = "ind")
+print(ind_plot)
+fviz_pca_ind(pca_result)
+
+fviz_pca_ind(pca_result, col.ind = popdata$super_pop, geom = "point", palette = "lancet")
+}
+
+
+
+
+perform_pca_analysis(chromosome = 12, start_position = 111766933, end_position = 111817532, popdata)
+```
